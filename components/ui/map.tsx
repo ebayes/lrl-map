@@ -150,9 +150,9 @@ function DefaultLoader() {
   return (
     <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/50 backdrop-blur-xs">
       <div className="flex gap-1">
-        <span className="size-1.5 animate-pulse rounded-full bg-muted-foreground/60" />
-        <span className="size-1.5 animate-pulse rounded-full bg-muted-foreground/60 [animation-delay:150ms]" />
-        <span className="size-1.5 animate-pulse rounded-full bg-muted-foreground/60 [animation-delay:300ms]" />
+        <span className="size-1.5 rounded-full bg-muted-foreground/60" />
+        <span className="size-1.5 rounded-full bg-muted-foreground/60" />
+        <span className="size-1.5 rounded-full bg-muted-foreground/60" />
       </div>
     </div>
   )
@@ -525,7 +525,7 @@ function PopupCloseButton({ onClick }: { onClick: () => void }) {
       type="button"
       onClick={onClick}
       aria-label="Close popup"
-      className="absolute top-0.5 right-0.5 z-10 inline-flex size-5 cursor-pointer items-center justify-center rounded-sm text-foreground transition-colors hover:bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="absolute top-0.5 right-0.5 z-10 inline-flex size-5 cursor-pointer items-center justify-center rounded-sm text-foreground hover:bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <X className="size-3.5" />
     </button>
@@ -595,7 +595,7 @@ function MarkerPopup({
     <div
       className={cn(
         "relative max-w-62 rounded-md border bg-popover p-3 text-popover-foreground shadow-md",
-        "animate-in duration-200 ease-out fade-in-0 zoom-in-95",
+        "",
         className
       )}
     >
@@ -672,7 +672,7 @@ function MarkerTooltip({
     <div
       className={cn(
         "pointer-events-none rounded-md bg-foreground px-2 py-1 text-xs text-balance text-background shadow-md",
-        "animate-in duration-200 ease-out fade-in-0 zoom-in-95",
+        "",
         className
       )}
     >
@@ -764,7 +764,7 @@ function ControlButton({
       aria-label={label}
       type="button"
       className={cn(
-        "flex size-8 items-center justify-center transition-all",
+        "flex size-8 items-center justify-center",
         "first:rounded-t-md last:rounded-b-md",
         "hover:bg-accent dark:hover:bg-accent/40",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset",
@@ -867,7 +867,7 @@ function MapControls({
             disabled={waitingForLocation}
           >
             {waitingForLocation ? (
-              <Loader2 className="size-4 animate-spin" />
+              <Loader2 className="size-4" />
             ) : (
               <Locate className="size-4" />
             )}
@@ -915,7 +915,7 @@ function CompassButton({ onClick }: { onClick: () => void }) {
       <svg
         ref={compassRef}
         viewBox="0 0 24 24"
-        className="size-5 transition-transform duration-200"
+        className="size-5"
         style={{ transformStyle: "preserve-3d" }}
       >
         <path d="M12 2L16 12H12V2Z" className="fill-red-500" />
@@ -1016,7 +1016,7 @@ function MapPopup({
     <div
       className={cn(
         "relative max-w-62 rounded-md border bg-popover p-3 text-popover-foreground shadow-md",
-        "animate-in duration-200 ease-out fade-in-0 zoom-in-95",
+        "",
         className
       )}
     >
@@ -1742,7 +1742,7 @@ function MapClusterLayer<
         // Default behavior: zoom to cluster expansion zoom
         const source = map.getSource(sourceId) as MapLibreGL.GeoJSONSource
         const zoom = await source.getClusterExpansionZoom(clusterId)
-        map.easeTo({
+        map.jumpTo({
           center: coordinates,
           zoom,
         })

@@ -608,12 +608,17 @@ const languagesByIso3 = buildCountryLanguageCatalog({
 })
 
 const languageCounts = new Map()
+const languageSpeakers = new Map()
 
 for (const country of languagesByIso3.values()) {
   for (const language of country.languages) {
     languageCounts.set(
       language.code,
       (languageCounts.get(language.code) ?? 0) + 1
+    )
+    languageSpeakers.set(
+      language.code,
+      Math.max(languageSpeakers.get(language.code) ?? 0, language.speakers ?? 0)
     )
   }
 }
@@ -628,6 +633,7 @@ const languageCatalog = Array.from(
           name,
           color: colorForLanguage(code),
           countryCount: languageCounts.get(code) ?? 0,
+          speakers: languageSpeakers.get(code) ?? 0,
           commonCrawlLatestCrawl: commonCrawl.latestCrawl,
           commonCrawlPages: commonCrawl.byLanguageCode.get(code)?.pages ?? 0,
           commonCrawlUrls: commonCrawl.byLanguageCode.get(code)?.urls ?? 0,

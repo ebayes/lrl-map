@@ -4,14 +4,19 @@ import { useEffect, useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
 import { Map, MapPopup, useMap } from "@/components/ui/map"
 import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-} from "@/components/ui/select"
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import { ChevronDownIcon } from "lucide-react"
 
 import type { GeoJSONSource, MapLayerMouseEvent } from "maplibre-gl"
 
@@ -24,12 +29,15 @@ const LLM_BENCHMARK_FILL_LAYER_ID = "llm-benchmark-coverage-fill"
 const LANGUAGE_SOURCE_ID = "language-countries"
 const DEFAULT_MAP_CENTER: [number, number] = [0, 12]
 const DEFAULT_MAP_ZOOM = 1.25
+const LANGUAGE_RESULT_LIMIT = 80
 
 type LanguageMeta = {
   code: string
   name: string
   color: string
   countryCount: number
+  speakers: number
+  commonCrawlPages: number
   commonCrawlPercent: number
 }
 
@@ -50,6 +58,7 @@ type BenchmarkMeta = {
 type LanguageFeature = GeoJSON.Feature<
   GeoJSON.Geometry,
   {
+    country?: string
     languageCodes?: string[]
   }
 >
@@ -82,11 +91,43 @@ function ControlsPanel({
   onLayerChange: (layer: "languages" | "commonCrawl" | "none") => void
   onLanguageChange: (languageCode: string) => void
 }) {
+  const [languageOpen, setLanguageOpen] = useState(false)
+  const [languageQuery, setLanguageQuery] = useState("")
   const selectedLanguageLabel =
     selectedLanguageCode === "all"
       ? "All languages"
       : (languages.find((language) => language.code === selectedLanguageCode)
           ?.name ?? "All languages")
+  const searchableLanguages = useMemo(
+    () =>
+      languages.map((language) => ({
+        ...language,
+        searchText: `${language.name} ${language.code}`.toLowerCase(),
+      })),
+    [languages]
+  )
+  const matchedLanguages = useMemo(() => {
+    const query = languageQuery.trim().toLowerCase()
+    return query
+      ? searchableLanguages.filter((language) =>
+          language.searchText.includes(query)
+        )
+      : searchableLanguages
+  }, [languageQuery, searchableLanguages])
+  const visibleLanguages = useMemo(
+    () => matchedLanguages.slice(0, LANGUAGE_RESULT_LIMIT),
+    [matchedLanguages]
+  )
+  const hiddenLanguageResultCount = Math.max(
+    matchedLanguages.length - visibleLanguages.length,
+    0
+  )
+
+  function selectLanguage(languageCode: string) {
+    onLanguageChange(languageCode)
+    setLanguageOpen(false)
+    setLanguageQuery("")
+  }
 
   return (
     <aside className="absolute top-3 right-3 z-10 flex w-72 flex-col gap-2 sm:top-7 sm:right-7">
@@ -125,34 +166,96 @@ function ControlsPanel({
           <CardTitle>Language</CardTitle>
         </CardHeader>
         <CardContent>
-          <Select
-            value={selectedLanguageCode}
-            onValueChange={(value) => onLanguageChange(String(value))}
+          <Popover
+            open={languageOpen}
+            onOpenChange={(open) => {
+              setLanguageOpen(open)
+              if (!open) setLanguageQuery("")
+            }}
           >
-            <SelectTrigger className="w-full bg-muted/70">
+            <PopoverTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full justify-between bg-muted/70"
+                />
+              }
+            >
               <span className="text-muted-foreground">Lang</span>
               <span className="truncate text-left">
                 {selectedLanguageLabel}
               </span>
-            </SelectTrigger>
-            <SelectContent
+              <ChevronDownIcon data-icon="inline-end" />
+            </PopoverTrigger>
+            <PopoverContent
               align="end"
-              alignItemWithTrigger={false}
-              className="max-h-80"
+              alignOffset={0}
+              sideOffset={6}
+              className="w-64 gap-0 p-0"
             >
-              <SelectGroup>
-                <SelectItem value="all">All languages</SelectItem>
-                {languages.map((language) => (
-                  <SelectItem key={language.code} value={language.code}>
-                    {language.name}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
+              <div className="flex flex-col gap-1">
+                <Input
+                  autoFocus
+                  value={languageQuery}
+                  placeholder="Search languages..."
+                  onChange={(event) => setLanguageQuery(event.target.value)}
+                />
+                <div className="max-h-72 overflow-y-auto">
+                  <LanguageOption
+                    label="All languages"
+                    isSelected={selectedLanguageCode === "all"}
+                    onSelect={() => selectLanguage("all")}
+                  />
+                  {visibleLanguages.map((language) => (
+                    <LanguageOption
+                      key={language.code}
+                      label={language.name}
+                      isSelected={selectedLanguageCode === language.code}
+                      onSelect={() => selectLanguage(language.code)}
+                    />
+                  ))}
+                  {visibleLanguages.length === 0 ? (
+                    <div className="px-2 py-6 text-center text-sm text-muted-foreground">
+                      No languages found.
+                    </div>
+                  ) : null}
+                  {hiddenLanguageResultCount > 0 ? (
+                    <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                      {formatNumber(hiddenLanguageResultCount)} more matches.
+                      Keep typing to narrow the list.
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
         </CardContent>
       </Card>
     </aside>
+  )
+}
+
+function LanguageOption({
+  label,
+  isSelected,
+  onSelect,
+}: {
+  label: string
+  isSelected: boolean
+  onSelect: () => void
+}) {
+  return (
+    <button
+      type="button"
+      className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted"
+      onClick={onSelect}
+    >
+      <span className="truncate">{label}</span>
+      {isSelected ? (
+        <span className="text-xs text-muted-foreground">Selected</span>
+      ) : null}
+    </button>
   )
 }
 
@@ -219,6 +322,106 @@ function CommonCrawlLegend() {
       </div>
     </section>
   )
+}
+
+function LanguageSummaryCard({
+  language,
+  countries,
+  benchmarks,
+}: {
+  language: LanguageMeta
+  countries: string[]
+  benchmarks: BenchmarkMeta[]
+}) {
+  const benchmarkNames = benchmarks.map((benchmark) => benchmark.shortName)
+  const visibleCountries = countries.slice(0, 6).join(", ")
+  const hiddenCountryCount = Math.max(countries.length - 6, 0)
+
+  return (
+    <Card
+      size="sm"
+      className="gap-3 bg-background/95 shadow-lg shadow-black/10 backdrop-blur-sm"
+    >
+      <CardHeader>
+        <CardTitle>{language.name}</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2 text-xs text-muted-foreground">
+        <div className="grid grid-cols-2 gap-2">
+          <SummaryMetric
+            label="Countries"
+            value={formatNumber(language.countryCount)}
+            tooltip={`Spoken in ${visibleCountries || "no mapped countries"}${hiddenCountryCount > 0 ? `, + ${hiddenCountryCount} more` : ""}.`}
+          />
+          <SummaryMetric
+            label="Speakers"
+            value={
+              language.speakers > 0
+                ? formatCompactNumber(language.speakers)
+                : "Unknown"
+            }
+            tooltip={
+              language.speakers > 0
+                ? "Best available speaker estimate from the language data source."
+                : "No speaker estimate is available for this language."
+            }
+          />
+          <SummaryMetric
+            label="Web share"
+            value={`${language.commonCrawlPercent.toFixed(4)}%`}
+            tooltip={`Common Crawl found ${formatCompactNumber(language.commonCrawlPages)} pages in this language.`}
+          />
+          <SummaryMetric
+            label="Benchmarks"
+            value={formatNumber(benchmarks.length)}
+            tooltip={
+              benchmarkNames.length > 0
+                ? benchmarkNames.join(", ")
+                : "No tracked benchmarks include this language yet."
+            }
+          />
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function SummaryMetric({
+  label,
+  value,
+  tooltip,
+}: {
+  label: string
+  value: string
+  tooltip: string
+}) {
+  const metric = (
+    <div className="rounded-lg bg-muted/70 p-2 text-left">
+      <div className="text-[11px] leading-4 text-muted-foreground">{label}</div>
+      <div className="text-sm font-medium text-foreground">{value}</div>
+    </div>
+  )
+
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<button type="button" className="block" />}>
+        {metric}
+      </TooltipTrigger>
+      <TooltipContent side="top" align="center">
+        <p>{tooltip}</p>
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
+function formatNumber(value: number) {
+  return new Intl.NumberFormat("en-US").format(value)
+}
+
+function formatCompactNumber(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value)
 }
 
 function LanguageCountryLayers({
@@ -571,10 +774,9 @@ function LanguageCountryLayers({
     if (!map) return
 
     if (selectedLanguageCode === "all") {
-      map.easeTo({
+      map.jumpTo({
         center: DEFAULT_MAP_CENTER,
         zoom: DEFAULT_MAP_ZOOM,
-        duration: 900,
       })
       return
     }
@@ -585,7 +787,7 @@ function LanguageCountryLayers({
 
     map.fitBounds(bounds, {
       padding: 72,
-      duration: 900,
+      duration: 0,
       maxZoom: 4.5,
     })
   }, [countryFeatures, map, selectedLanguageCode])
@@ -679,6 +881,33 @@ export default function Page() {
   const hiddenPopupLanguageCount = countryPopup
     ? Math.max(countryPopup.languages.length - 10, 0)
     : 0
+  const selectedLanguage = useMemo(
+    () =>
+      selectedLanguageCode === "all"
+        ? null
+        : (languages.find(
+            (language) => language.code === selectedLanguageCode
+          ) ?? null),
+    [languages, selectedLanguageCode]
+  )
+  const selectedLanguageCountries = useMemo(() => {
+    if (!selectedLanguage) return []
+
+    return countryFeatures
+      .filter((feature) =>
+        feature.properties.languageCodes?.includes(selectedLanguage.code)
+      )
+      .map((feature) => feature.properties.country)
+      .filter((country): country is string => Boolean(country))
+      .sort((a, b) => a.localeCompare(b))
+  }, [countryFeatures, selectedLanguage])
+  const selectedLanguageBenchmarks = useMemo(() => {
+    if (!selectedLanguage) return []
+
+    return benchmarks.filter((benchmark) =>
+      benchmark.languageCodes.includes(selectedLanguage.code)
+    )
+  }, [benchmarks, selectedLanguage])
 
   function handleLanguageChange(languageCode: string) {
     setSelectedLanguageCode(languageCode)
@@ -775,9 +1004,16 @@ export default function Page() {
           onLanguageChange={handleLanguageChange}
         />
 
-        {activeLayer === "commonCrawl" ? (
+        {activeLayer === "commonCrawl" || selectedLanguage ? (
           <aside className="absolute right-3 bottom-3 left-3 z-10 flex flex-col gap-2 sm:left-auto sm:w-72">
-            <CommonCrawlLegend />
+            {selectedLanguage ? (
+              <LanguageSummaryCard
+                language={selectedLanguage}
+                countries={selectedLanguageCountries}
+                benchmarks={selectedLanguageBenchmarks}
+              />
+            ) : null}
+            {activeLayer === "commonCrawl" ? <CommonCrawlLegend /> : null}
           </aside>
         ) : null}
       </div>

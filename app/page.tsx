@@ -2,24 +2,28 @@
 
 import { useEffect, useMemo, useState } from "react"
 
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Map, MapPopup, useMap } from "@/components/ui/map"
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Map, MapControls, MapPopup, useMap } from "@/components/ui/map"
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+} from "@/components/ui/select"
 
-import type { MapLayerMouseEvent } from "maplibre-gl"
+import type { GeoJSONSource, MapLayerMouseEvent } from "maplibre-gl"
 
 const LANGUAGE_GEOJSON_URL = "/data/language-countries.geojson"
+const LANGUAGE_GEOJSON_REQUEST_URL = `${LANGUAGE_GEOJSON_URL}?v=${Date.now()}`
 const LANGUAGE_FILL_LAYER_ID = "language-countries-fill"
 const LANGUAGE_OUTLINE_LAYER_ID = "language-countries-outline"
 const COMMON_CRAWL_FILL_LAYER_ID = "common-crawl-language-fill"
 const LLM_BENCHMARK_FILL_LAYER_ID = "llm-benchmark-coverage-fill"
 const LANGUAGE_SOURCE_ID = "language-countries"
+const DEFAULT_MAP_CENTER: [number, number] = [0, 12]
+const DEFAULT_MAP_ZOOM = 1.25
 
 type LanguageMeta = {
   code: string
@@ -43,15 +47,178 @@ type BenchmarkMeta = {
   countryCount: number
 }
 
+type LanguageFeature = GeoJSON.Feature<
+  GeoJSON.Geometry,
+  {
+    languageCodes?: string[]
+  }
+>
+
 type CountryPopup = {
   country: string
-  languages: string
+  languages: string[]
   commonCrawlPercent: number
+  commonCrawlMatchedLanguageCount: number
+  commonCrawlMatchedLanguageList: string
+  commonCrawlTopLanguage: string
+  commonCrawlTopLanguagePercent: number
   llmBenchmarkCount: number
   llmBenchmarkNames: string
   primaryLanguage: string
   longitude: number
   latitude: number
+}
+
+function ControlsPanel({
+  activeLayer,
+  languages,
+  selectedLanguageCode,
+  onLayerChange,
+  onLanguageChange,
+}: {
+  activeLayer: "languages" | "commonCrawl" | "none"
+  languages: LanguageMeta[]
+  selectedLanguageCode: string
+  onLayerChange: (layer: "languages" | "commonCrawl" | "none") => void
+  onLanguageChange: (languageCode: string) => void
+}) {
+  const selectedLanguageLabel =
+    selectedLanguageCode === "all"
+      ? "All languages"
+      : (languages.find((language) => language.code === selectedLanguageCode)
+          ?.name ?? "All languages")
+
+  return (
+    <aside className="absolute top-3 right-3 z-10 flex w-72 flex-col gap-2 sm:top-7 sm:right-7">
+      <Card
+        size="sm"
+        className="gap-2 bg-background/95 shadow-lg shadow-black/10 backdrop-blur-sm"
+      >
+        <CardHeader>
+          <CardTitle>Layers</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-1.5">
+          <LayerControlRow
+            label="Languages"
+            isActive={activeLayer === "languages"}
+            onOff={() => {
+              if (activeLayer === "languages") onLayerChange("none")
+            }}
+            onOn={() => onLayerChange("languages")}
+          />
+          <LayerControlRow
+            label="Common Crawl"
+            isActive={activeLayer === "commonCrawl"}
+            onOff={() => {
+              if (activeLayer === "commonCrawl") onLayerChange("none")
+            }}
+            onOn={() => onLayerChange("commonCrawl")}
+          />
+        </CardContent>
+      </Card>
+
+      <Card
+        size="sm"
+        className="gap-2 bg-background/95 shadow-lg shadow-black/10 backdrop-blur-sm"
+      >
+        <CardHeader>
+          <CardTitle>Language</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Select
+            value={selectedLanguageCode}
+            onValueChange={(value) => onLanguageChange(String(value))}
+          >
+            <SelectTrigger className="w-full bg-muted/70">
+              <span className="text-muted-foreground">Lang</span>
+              <span className="truncate text-left">
+                {selectedLanguageLabel}
+              </span>
+            </SelectTrigger>
+            <SelectContent
+              align="end"
+              alignItemWithTrigger={false}
+              className="max-h-80"
+            >
+              <SelectGroup>
+                <SelectItem value="all">All languages</SelectItem>
+                {languages.map((language) => (
+                  <SelectItem key={language.code} value={language.code}>
+                    {language.name}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </CardContent>
+      </Card>
+    </aside>
+  )
+}
+
+function LayerControlRow({
+  label,
+  isActive,
+  onOff,
+  onOn,
+}: {
+  label: string
+  isActive: boolean
+  onOff: () => void
+  onOn: () => void
+}) {
+  return (
+    <div className="flex h-9 items-center justify-between rounded-lg bg-muted/70 px-2">
+      <span className="text-sm text-muted-foreground">{label}</span>
+      <div className="flex items-center gap-1">
+        <Button
+          type="button"
+          variant={!isActive ? "secondary" : "ghost"}
+          size="sm"
+          onClick={onOff}
+        >
+          Off
+        </Button>
+        <Button
+          type="button"
+          variant={isActive ? "secondary" : "ghost"}
+          size="sm"
+          onClick={onOn}
+        >
+          On
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function CommonCrawlLegend() {
+  return (
+    <section className="rounded-lg border border-border/70 bg-background/95 p-3 text-foreground shadow-lg shadow-black/10 backdrop-blur-sm">
+      <div className="flex flex-col gap-2.5">
+        <div>
+          <div className="text-sm font-medium">Web language share</div>
+          <p className="mt-0.5 text-xs leading-4 text-muted-foreground">
+            Color shows how much of Common Crawl&apos;s public web snapshot is
+            written in this country&apos;s listed languages.
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <div className="h-2.5 rounded-full bg-[linear-gradient(to_right,rgba(255,247,188,0),#fff7bc_8%,#fee391_18%,#fec44f_36%,#fe9929_58%,#d7301f_82%,#7f0000_100%)] ring-1 ring-black/10" />
+          <div className="flex items-center justify-between text-[11px] font-medium text-muted-foreground">
+            <span>0%</span>
+            <span>10%</span>
+            <span>45%+</span>
+          </div>
+          <p className="text-[11px] leading-4 text-muted-foreground">
+            Yellow means these languages are rare in the snapshot; dark red
+            means they appear often.
+          </p>
+        </div>
+      </div>
+    </section>
+  )
 }
 
 function LanguageCountryLayers({
@@ -61,6 +228,7 @@ function LanguageCountryLayers({
   showLlmBenchmarks,
   showLanguages,
   benchmarks,
+  countryFeatures,
   onCountryClick,
 }: {
   selectedLanguageCode: string
@@ -69,6 +237,7 @@ function LanguageCountryLayers({
   showLlmBenchmarks: boolean
   showLanguages: boolean
   benchmarks: BenchmarkMeta[]
+  countryFeatures: LanguageFeature[]
   onCountryClick: (country: CountryPopup) => void
 }) {
   const { map, isLoaded } = useMap()
@@ -86,8 +255,16 @@ function LanguageCountryLayers({
     if (!map.getSource(LANGUAGE_SOURCE_ID)) {
       map.addSource(LANGUAGE_SOURCE_ID, {
         type: "geojson",
-        data: LANGUAGE_GEOJSON_URL,
+        data: LANGUAGE_GEOJSON_REQUEST_URL,
       })
+    } else {
+      const source = map.getSource(LANGUAGE_SOURCE_ID) as
+        | GeoJSONSource
+        | undefined
+
+      if (source) {
+        source.setData(LANGUAGE_GEOJSON_REQUEST_URL)
+      }
     }
 
     if (!map.getLayer(LANGUAGE_FILL_LAYER_ID)) {
@@ -217,14 +394,33 @@ function LanguageCountryLayers({
         .map((benchmarkId: string) => benchmarkNameById.get(benchmarkId))
         .filter(Boolean)
         .join(", ")
+      const languages = Array.isArray(feature.properties.languages)
+        ? feature.properties.languages.map(String)
+        : String(feature.properties.languageList ?? "")
+            .split(",")
+            .map((language) => language.trim())
+            .filter(Boolean)
 
       onCountryClick({
         country: String(feature.properties.country ?? "Unknown country"),
-        languages: String(feature.properties.languageList ?? "No languages"),
+        languages,
         primaryLanguage: String(
           feature.properties.primaryLanguage ?? "Unknown language"
         ),
         commonCrawlPercent: Number(feature.properties.commonCrawlPercent ?? 0),
+        commonCrawlMatchedLanguageCount: Number(
+          feature.properties.commonCrawlMatchedLanguageCount ?? 0
+        ),
+        commonCrawlMatchedLanguageList: String(
+          feature.properties.commonCrawlMatchedLanguageList ??
+            "None of these languages were found in Common Crawl"
+        ),
+        commonCrawlTopLanguage: String(
+          feature.properties.commonCrawlTopLanguage ?? "No language found"
+        ),
+        commonCrawlTopLanguagePercent: Number(
+          feature.properties.commonCrawlTopLanguagePercent ?? 0
+        ),
         llmBenchmarkCount: Number(feature.properties.llmBenchmarkCount ?? 0),
         llmBenchmarkNames:
           llmBenchmarkNames || "No selected benchmark coverage",
@@ -371,59 +567,150 @@ function LanguageCountryLayers({
     map.setPaintProperty(LANGUAGE_OUTLINE_LAYER_ID, "line-opacity", 0.52)
   }, [map, selectedLanguageCode])
 
+  useEffect(() => {
+    if (!map) return
+
+    if (selectedLanguageCode === "all") {
+      map.easeTo({
+        center: DEFAULT_MAP_CENTER,
+        zoom: DEFAULT_MAP_ZOOM,
+        duration: 900,
+      })
+      return
+    }
+
+    const bounds = boundsForLanguage(countryFeatures, selectedLanguageCode)
+
+    if (!bounds) return
+
+    map.fitBounds(bounds, {
+      padding: 72,
+      duration: 900,
+      maxZoom: 4.5,
+    })
+  }, [countryFeatures, map, selectedLanguageCode])
+
   return null
 }
 
+function boundsForLanguage(
+  features: LanguageFeature[],
+  languageCode: string
+): [[number, number], [number, number]] | null {
+  let minLng = Infinity
+  let minLat = Infinity
+  let maxLng = -Infinity
+  let maxLat = -Infinity
+
+  for (const feature of features) {
+    if (!feature.properties.languageCodes?.includes(languageCode)) continue
+    if (feature.geometry.type === "GeometryCollection") continue
+
+    walkCoordinates(feature.geometry.coordinates, (lng, lat) => {
+      minLng = Math.min(minLng, lng)
+      minLat = Math.min(minLat, lat)
+      maxLng = Math.max(maxLng, lng)
+      maxLat = Math.max(maxLat, lat)
+    })
+  }
+
+  if (
+    !Number.isFinite(minLng) ||
+    !Number.isFinite(minLat) ||
+    !Number.isFinite(maxLng) ||
+    !Number.isFinite(maxLat)
+  ) {
+    return null
+  }
+
+  return [
+    [minLng, minLat],
+    [maxLng, maxLat],
+  ]
+}
+
+function walkCoordinates(
+  coordinates: unknown,
+  visit: (lng: number, lat: number) => void
+) {
+  if (!Array.isArray(coordinates)) return
+
+  if (typeof coordinates[0] === "number") {
+    const [lng, lat] = coordinates as GeoJSON.Position
+    visit(lng, lat)
+    return
+  }
+
+  for (const child of coordinates) {
+    walkCoordinates(child, visit)
+  }
+}
+
 export default function Page() {
-  const [showLanguages, setShowLanguages] = useState(true)
-  const [showCommonCrawl, setShowCommonCrawl] = useState(false)
-  const [showLlmBenchmarks, setShowLlmBenchmarks] = useState(false)
-  const [selectedLanguageCode, setSelectedLanguageCode] = useState("all")
-  const [selectedBenchmarkId, setSelectedBenchmarkId] = useState("all")
   const [languages, setLanguages] = useState<LanguageMeta[]>([])
   const [benchmarks, setBenchmarks] = useState<BenchmarkMeta[]>([])
+  const [countryFeatures, setCountryFeatures] = useState<LanguageFeature[]>([])
   const [countryPopup, setCountryPopup] = useState<CountryPopup | null>(null)
+  const [showAllPopupLanguages, setShowAllPopupLanguages] = useState(false)
+  const [selectedLanguageCode, setSelectedLanguageCode] = useState("all")
+  const [activeLayer, setActiveLayer] = useState<
+    "languages" | "commonCrawl" | "none"
+  >("languages")
 
   useEffect(() => {
     async function loadLanguageMetadata() {
-      const response = await fetch(LANGUAGE_GEOJSON_URL)
+      const response = await fetch(LANGUAGE_GEOJSON_REQUEST_URL, {
+        cache: "no-store",
+      })
       const geojson = await response.json()
       setLanguages(geojson.metadata.languages)
       setBenchmarks(geojson.metadata.llmBenchmarks)
+      setCountryFeatures(geojson.features)
     }
 
     loadLanguageMetadata()
   }, [])
 
-  const selectedLanguage = useMemo(
-    () =>
-      selectedLanguageCode === "all"
-        ? null
-        : languages.find((language) => language.code === selectedLanguageCode),
-    [languages, selectedLanguageCode]
-  )
-  const selectedBenchmark = useMemo(
-    () =>
-      selectedBenchmarkId === "all"
-        ? null
-        : benchmarks.find((benchmark) => benchmark.id === selectedBenchmarkId),
-    [benchmarks, selectedBenchmarkId]
-  )
+  const popupLanguagePreview = countryPopup
+    ? countryPopup.languages
+        .slice(0, showAllPopupLanguages ? undefined : 10)
+        .join(", ")
+    : ""
+  const hiddenPopupLanguageCount = countryPopup
+    ? Math.max(countryPopup.languages.length - 10, 0)
+    : 0
+
+  function handleLanguageChange(languageCode: string) {
+    setSelectedLanguageCode(languageCode)
+
+    if (languageCode !== "all") {
+      setActiveLayer("languages")
+    }
+  }
 
   return (
-    <main className="relative h-svh overflow-hidden bg-muted/50 p-5">
+    <main className="relative h-svh overflow-hidden bg-muted/50 p-4">
       <div className="relative h-full overflow-hidden rounded-3xl">
-        <Map center={[0, 12]} zoom={1.25} minZoom={0.8} maxZoom={8}>
+        <Map
+          center={DEFAULT_MAP_CENTER}
+          zoom={DEFAULT_MAP_ZOOM}
+          minZoom={0.8}
+          maxZoom={8}
+          attributionControl={false}
+        >
           <LanguageCountryLayers
             selectedLanguageCode={selectedLanguageCode}
-            selectedBenchmarkId={selectedBenchmarkId}
-            showCommonCrawl={showCommonCrawl}
-            showLlmBenchmarks={showLlmBenchmarks}
-            showLanguages={showLanguages}
+            selectedBenchmarkId="all"
+            showCommonCrawl={activeLayer === "commonCrawl"}
+            showLlmBenchmarks={false}
+            showLanguages={activeLayer === "languages"}
             benchmarks={benchmarks}
-            onCountryClick={setCountryPopup}
+            countryFeatures={countryFeatures}
+            onCountryClick={(country) => {
+              setCountryPopup(country)
+              setShowAllPopupLanguages(false)
+            }}
           />
-          <MapControls position="bottom-right" showCompass showFullscreen />
           {countryPopup ? (
             <MapPopup
               longitude={countryPopup.longitude}
@@ -434,15 +721,43 @@ export default function Page() {
               <div className="flex max-w-64 flex-col gap-1">
                 <div className="font-medium">{countryPopup.country}</div>
                 <div className="text-xs text-muted-foreground">
-                  {countryPopup.languages}
+                  {popupLanguagePreview || "No languages"}
+                  {!showAllPopupLanguages && hiddenPopupLanguageCount > 0 ? (
+                    <>
+                      {" "}
+                      <span>+ {hiddenPopupLanguageCount}</span>{" "}
+                      <button
+                        type="button"
+                        className="underline underline-offset-2"
+                        onClick={() => setShowAllPopupLanguages(true)}
+                      >
+                        Show all
+                      </button>
+                    </>
+                  ) : null}
                 </div>
                 <div className="pt-1 text-xs text-muted-foreground">
-                  Common Crawl: {countryPopup.primaryLanguage} is{" "}
-                  {countryPopup.commonCrawlPercent.toFixed(4)}% of latest crawl
-                  pages.
+                  Web snapshot: about{" "}
+                  {countryPopup.commonCrawlPercent.toFixed(4)}% of pages are in
+                  this country&apos;s listed languages.
+                  {countryPopup.commonCrawlMatchedLanguageCount > 0
+                    ? ` Biggest share: ${countryPopup.commonCrawlTopLanguage} (${countryPopup.commonCrawlTopLanguagePercent.toFixed(4)}%).`
+                    : countryPopup.commonCrawlPercent > 0
+                      ? " Some of these languages were found, but the detail list needs a refresh."
+                      : " None of these languages were found in Common Crawl."}
+                </div>
+                {countryPopup.commonCrawlMatchedLanguageCount > 1 ? (
+                  <div className="text-xs text-muted-foreground">
+                    Found: {countryPopup.commonCrawlMatchedLanguageList}
+                  </div>
+                ) : null}
+                <div className="text-[11px] leading-4 text-muted-foreground">
+                  This is about languages on the public web, not internet use
+                  inside the country.
                 </div>
                 <div className="pt-1 text-xs text-muted-foreground">
-                  LLM benchmarks: {countryPopup.llmBenchmarkCount} matched.
+                  AI test sets: {countryPopup.llmBenchmarkCount} include one of
+                  these languages.
                   {countryPopup.llmBenchmarkCount > 0
                     ? ` ${countryPopup.llmBenchmarkNames}`
                     : ""}
@@ -451,114 +766,21 @@ export default function Page() {
             </MapPopup>
           ) : null}
         </Map>
+
+        <ControlsPanel
+          activeLayer={activeLayer}
+          languages={languages}
+          selectedLanguageCode={selectedLanguageCode}
+          onLayerChange={setActiveLayer}
+          onLanguageChange={handleLanguageChange}
+        />
+
+        {activeLayer === "commonCrawl" ? (
+          <aside className="absolute right-3 bottom-3 left-3 z-10 flex flex-col gap-2 sm:left-auto sm:w-72">
+            <CommonCrawlLegend />
+          </aside>
+        ) : null}
       </div>
-
-      <Card className="absolute top-10 left-10 z-10 w-80" size="sm">
-        <CardHeader>
-          <CardTitle>Layers</CardTitle>
-          <CardDescription>
-            Country-level language coverage from REST Countries.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          <label className="flex items-center gap-2 text-sm">
-            <Checkbox
-              checked={showLanguages}
-              onCheckedChange={(checked) => setShowLanguages(Boolean(checked))}
-            />
-            Languages by country
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <Checkbox
-              checked={showCommonCrawl}
-              onCheckedChange={(checked) =>
-                setShowCommonCrawl(Boolean(checked))
-              }
-            />
-            Common Crawl representation
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <Checkbox
-              checked={showLlmBenchmarks}
-              onCheckedChange={(checked) =>
-                setShowLlmBenchmarks(Boolean(checked))
-              }
-            />
-            LLM benchmark coverage
-          </label>
-
-          <label className="flex flex-col gap-1.5 text-sm">
-            <span className="text-muted-foreground">Highlight language</span>
-            <select
-              className="h-8 rounded-md border border-input bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-              value={selectedLanguageCode}
-              onChange={(event) => setSelectedLanguageCode(event.target.value)}
-            >
-              <option value="all">All primary country languages</option>
-              {languages.map((language) => (
-                <option key={language.code} value={language.code}>
-                  {language.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1.5 text-sm">
-            <span className="text-muted-foreground">Benchmark source</span>
-            <select
-              className="h-8 rounded-md border border-input bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-              value={selectedBenchmarkId}
-              onChange={(event) => setSelectedBenchmarkId(event.target.value)}
-            >
-              <option value="all">All benchmark sources</option>
-              {benchmarks.map((benchmark) => (
-                <option key={benchmark.id} value={benchmark.id}>
-                  {benchmark.shortName}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <div className="rounded-md bg-muted/60 p-2 text-xs text-muted-foreground">
-            {selectedBenchmark ? (
-              <>
-                {selectedBenchmark.name} maps to{" "}
-                {selectedBenchmark.matchedLanguageCodes.length} listed country
-                languages across {selectedBenchmark.countryCount} countries.
-              </>
-            ) : selectedLanguage ? (
-              <>
-                {selectedLanguage.name} appears in{" "}
-                {selectedLanguage.countryCount}{" "}
-                {selectedLanguage.countryCount === 1 ? "country" : "countries"}.{" "}
-                Common Crawl share:{" "}
-                {selectedLanguage.commonCrawlPercent.toFixed(4)}%.
-              </>
-            ) : (
-              <>
-                Showing each country by its first listed language. Select a
-                language to highlight all countries where it is listed.
-              </>
-            )}
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <div className="grid grid-cols-5 gap-1.5">
-              {["#fff7bc", "#fee391", "#fec44f", "#fe9929", "#d7301f"].map(
-                (color) => (
-                  <span
-                    key={color}
-                    className="h-2.5 rounded-full"
-                    style={{ backgroundColor: color }}
-                  />
-                )
-              )}
-            </div>
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>Lower web share</span>
-              <span>Higher</span>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
     </main>
   )
 }
